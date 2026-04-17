@@ -3957,11 +3957,17 @@ async function setupNim(gpu) {
 
           // Ensure Docker is logged in to NGC registry before pulling NIM images.
           if (!nim.isNgcLoggedIn()) {
+            if (isNonInteractive()) {
+              console.error(
+                "  Docker is not logged in to nvcr.io. In non-interactive mode, run `docker login nvcr.io` first and retry.",
+              );
+              process.exit(1);
+            }
             console.log("");
             console.log("  NGC API Key required to pull NIM images.");
             console.log("  Get one from: https://org.ngc.nvidia.com/setup/api-key");
             console.log("");
-            let ngcKey = await prompt("  NGC API Key: ", { secret: true });
+            let ngcKey = normalizeCredentialValue(await prompt("  NGC API Key: ", { secret: true }));
             if (!ngcKey) {
               console.error("  NGC API Key is required for Local NIM.");
               process.exit(1);
@@ -3969,7 +3975,7 @@ async function setupNim(gpu) {
             if (!nim.dockerLoginNgc(ngcKey)) {
               console.error("  Failed to login to NGC registry. Check your API key and try again.");
               console.log("");
-              ngcKey = await prompt("  NGC API Key: ", { secret: true });
+              ngcKey = normalizeCredentialValue(await prompt("  NGC API Key: ", { secret: true }));
               if (!ngcKey || !nim.dockerLoginNgc(ngcKey)) {
                 console.error("  NGC login failed. Cannot pull NIM images.");
                 process.exit(1);

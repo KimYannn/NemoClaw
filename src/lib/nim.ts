@@ -180,9 +180,14 @@ export function isNgcLoggedIn(): boolean {
   try {
     const os = require("os");
     const fs = require("fs");
-    const config = os.homedir() + "/.docker/config.json";
+    const path = require("path");
+    const config = path.join(os.homedir(), ".docker", "config.json");
     const data = fs.readFileSync(config, "utf-8");
-    return data.includes("nvcr.io");
+    const parsed = JSON.parse(data);
+    if (parsed?.credHelpers?.["nvcr.io"]) return true;
+    const auths = parsed?.auths || {};
+    const entry = auths["nvcr.io"] || auths["https://nvcr.io"];
+    return Boolean(entry && (entry.auth || entry.token));
   } catch {
     return false;
   }
