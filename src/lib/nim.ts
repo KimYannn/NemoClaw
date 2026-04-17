@@ -176,6 +176,28 @@ export function detectGpu(): GpuDetection | null {
   return null;
 }
 
+export function isNgcLoggedIn(): boolean {
+  try {
+    const os = require("os");
+    const fs = require("fs");
+    const config = os.homedir() + "/.docker/config.json";
+    const data = fs.readFileSync(config, "utf-8");
+    return data.includes("nvcr.io");
+  } catch {
+    return false;
+  }
+}
+
+export function dockerLoginNgc(apiKey: string): boolean {
+  const { spawnSync } = require("child_process");
+  const result = spawnSync("docker", ["login", "nvcr.io", "-u", "$oauthtoken", "--password-stdin"], {
+    input: apiKey,
+    encoding: "utf-8",
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  return result.status === 0;
+}
+
 export function pullNimImage(model: string): string {
   const image = getImageForModel(model);
   if (!image) {
