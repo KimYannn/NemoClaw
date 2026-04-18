@@ -74,10 +74,9 @@ spec:
         capabilities:
           drop:
             - ALL
+        readOnlyRootFilesystem: true
         seccompProfile:
           type: RuntimeDefault
-      ports:
-        - containerPort: 2375
       env:
         - name: DOCKER_SOCKET
           value: /docker-socket/docker.sock
@@ -212,6 +211,8 @@ spec:
     # Configure Docker daemon for cgroup v2
     - name: init-docker-config
       image: busybox
+      securityContext:
+        readOnlyRootFilesystem: true
       command:
         - sh
         - -c

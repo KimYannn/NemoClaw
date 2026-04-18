@@ -1,6 +1,11 @@
+<!--
+  SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+  SPDX-License-Identifier: Apache-2.0
+-->
+
 # NemoClaw on Kubernetes
 
-> **⚠️ Experimental**: This deployment method is intended for **trying out NemoClaw on Kubernetes**, not for production use. It uses rootless Docker-in-Docker (DinD) to create isolated sandbox environments. Operational requirements (storage, runtime, security policies) vary by cluster configuration.
+> **Experimental**: This deployment method is intended for **trying out NemoClaw on Kubernetes**, not for production use. It uses rootless Docker-in-Docker (DinD) to create isolated sandbox environments. Operational requirements (storage, runtime, security policies) vary by cluster configuration.
 
 The sample manifest now uses a few safer defaults out of the box:
 
@@ -168,7 +173,7 @@ sandbox@my-assistant:~$ openclaw agent --agent main -m "What is 7 times 8?"
 │  │  │ Rootless DinD    │  │  Docker   │  │  Workspace          │  │  │
 │  │  │                  │  │  Socket   │  │                     │  │  │
 │  │  │  ┌────────────┐  │  │  Proxy    │  │  nemoclaw CLI       │  │  │
-│  │  │  │    k3s     │  │◄─│          │◄─│  openshell CLI      │  │  │
+│  │  │  │    k3s     │  │◄─│          │◄─│  OpenShell CLI      │  │  │
 │  │  │  │   cluster  │  │  │ TCP 2375 │  │                     │  │  │
 │  │  │  │            │  │  │          │  │  socat ─────────────│──┼──► Dynamo/vLLM
 │  │  │  │  ┌───────┐ │  │  │ Filters: │  │  localhost:8000     │  │  │
@@ -211,7 +216,7 @@ Common issues:
 kubectl logs nemoclaw -n nemoclaw -c dind
 ```
 
-Usually resolves after 30-60 seconds. Rootless DinD may take slightly longer than privileged DinD due to user namespace setup.
+May take up to 90 seconds (45 retries x 2s). Rootless DinD may take slightly longer than privileged DinD due to user namespace setup.
 
 ### Docker socket proxy issues
 

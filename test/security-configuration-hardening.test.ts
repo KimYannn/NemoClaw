@@ -70,7 +70,9 @@ describe("security configuration hardening", () => {
     expect(workspaceSection).not.toMatch(/name:\s*docker-socket/);
 
     // Workspace talks to the proxy over TCP, not to the raw socket
-    expect(workspaceSection).toMatch(/DOCKER_HOST[\s\S]*?value:\s*tcp:\/\//);
+    expect(workspaceSection).toMatch(
+      /DOCKER_HOST[\s\S]*?value:\s*tcp:\/\/localhost:2375/,
+    );
     expect(workspaceSection).not.toMatch(/DOCKER_HOST[\s\S]*?value:\s*unix:\/\//);
   });
 });
