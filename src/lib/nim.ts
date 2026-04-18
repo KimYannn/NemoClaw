@@ -176,6 +176,10 @@ export function detectGpu(): GpuDetection | null {
   return null;
 }
 
+// Check if Docker has stored credentials for nvcr.io.
+// When credsStore is set (e.g., Docker Desktop), credentials are in the OS
+// keychain and not visible in config.json. Returns false in that case,
+// causing a redundant but harmless re-prompt.
 export function isNgcLoggedIn(): boolean {
   try {
     const os = require("os");
@@ -193,6 +197,7 @@ export function isNgcLoggedIn(): boolean {
   }
 }
 
+// NGC expects literal "$oauthtoken" as the username for API key authentication.
 export function dockerLoginNgc(apiKey: string): boolean {
   const { spawnSync } = require("child_process");
   const result = spawnSync("docker", ["login", "nvcr.io", "-u", "$oauthtoken", "--password-stdin"], {
@@ -200,6 +205,13 @@ export function dockerLoginNgc(apiKey: string): boolean {
     encoding: "utf-8",
     stdio: ["pipe", "pipe", "pipe"],
   });
+  if (result.error) {
+    console.error(`  Docker error: ${result.error.message}`);
+    return false;
+  }
+  if (result.status !== 0 && result.stderr) {
+    console.error(`  Docker login error: ${result.stderr.trim()}`);
+  }
   return result.status === 0;
 }
 
