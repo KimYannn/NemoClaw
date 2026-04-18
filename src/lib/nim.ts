@@ -177,9 +177,9 @@ export function detectGpu(): GpuDetection | null {
 }
 
 // Check if Docker has stored credentials for nvcr.io.
-// When credsStore is set (e.g., Docker Desktop), credentials are in the OS
-// keychain and not visible in config.json. Returns false in that case,
-// causing a redundant but harmless re-prompt.
+// Docker Desktop (macOS/Windows/WSL) stores creds in the OS keychain and
+// leaves an empty marker entry { "nvcr.io": {} } in auths after a successful
+// login. That marker plus a global credsStore is treated as logged in.
 export function isNgcLoggedIn(): boolean {
   try {
     const os = require("os");
@@ -191,7 +191,9 @@ export function isNgcLoggedIn(): boolean {
     if (parsed?.credHelpers?.["nvcr.io"]) return true;
     const auths = parsed?.auths || {};
     const entry = auths["nvcr.io"] || auths["https://nvcr.io"];
-    return Boolean(entry && (entry.auth || entry.token));
+    if (entry?.auth) return true;
+    if (entry && parsed?.credsStore) return true;
+    return false;
   } catch {
     return false;
   }

@@ -309,8 +309,10 @@ describe("nim", () => {
       }
     });
 
-    it("returns true when auths has https://nvcr.io with token field", () => {
-      const restore = mockDockerConfig(JSON.stringify({ auths: { "https://nvcr.io": { token: "abc123" } } }));
+    it("returns true when auths has https://nvcr.io with auth field", () => {
+      const restore = mockDockerConfig(
+        JSON.stringify({ auths: { "https://nvcr.io": { auth: "dXNlcjpwYXNz" } } }),
+      );
       try {
         expect(nim.isNgcLoggedIn()).toBe(true);
       } finally {
@@ -347,6 +349,37 @@ describe("nim", () => {
 
     it("returns false when auths is empty and no credHelpers", () => {
       const restore = mockDockerConfig(JSON.stringify({ auths: {} }));
+      try {
+        expect(nim.isNgcLoggedIn()).toBe(false);
+      } finally {
+        restore();
+      }
+    });
+
+    it("returns true when empty nvcr.io marker exists and credsStore is set (Docker Desktop)", () => {
+      const restore = mockDockerConfig(
+        JSON.stringify({ credsStore: "desktop", auths: { "nvcr.io": {} } }),
+      );
+      try {
+        expect(nim.isNgcLoggedIn()).toBe(true);
+      } finally {
+        restore();
+      }
+    });
+
+    it("returns false when credsStore is set but no nvcr.io marker (not logged in)", () => {
+      const restore = mockDockerConfig(
+        JSON.stringify({ credsStore: "desktop", auths: {} }),
+      );
+      try {
+        expect(nim.isNgcLoggedIn()).toBe(false);
+      } finally {
+        restore();
+      }
+    });
+
+    it("returns false when empty nvcr.io marker exists but no credsStore", () => {
+      const restore = mockDockerConfig(JSON.stringify({ auths: { "nvcr.io": {} } }));
       try {
         expect(nim.isNgcLoggedIn()).toBe(false);
       } finally {
