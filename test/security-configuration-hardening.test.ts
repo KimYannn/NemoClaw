@@ -15,7 +15,7 @@ describe("security configuration hardening", () => {
       /- name: workspace[\s\S]*?(?=\n\s*-\s*name: |\n\s*initContainers:|\n\s*volumes:|$)/,
     );
     expect(workspaceMatch).not.toBeNull();
-    const workspaceSection = workspaceMatch[0];
+    const workspaceSection = workspaceMatch![0];
     expect(manifest).toMatch(/automountServiceAccountToken:\s*false/);
     expect(manifest).toMatch(/enableServiceLinks:\s*false/);
     expect(workspaceSection).toMatch(/allowPrivilegeEscalation:\s*false/);
@@ -46,7 +46,7 @@ describe("security configuration hardening", () => {
       /- name: docker-proxy[\s\S]*?(?=\n\s{4}-\s*name: |\n\s*initContainers:|\n\s*volumes:|$)/,
     );
     expect(proxyMatch).not.toBeNull();
-    const proxySection = proxyMatch[0];
+    const proxySection = proxyMatch![0];
 
     // Proxy is hardened
     expect(proxySection).toMatch(/allowPrivilegeEscalation:\s*false/);
@@ -66,7 +66,7 @@ describe("security configuration hardening", () => {
       /- name: workspace[\s\S]*?(?=\n\s{4}-\s*name: |\n\s*initContainers:|\n\s*volumes:|$)/,
     );
     expect(workspaceMatch).not.toBeNull();
-    const workspaceSection = workspaceMatch[0];
+    const workspaceSection = workspaceMatch![0];
     expect(workspaceSection).not.toMatch(/name:\s*docker-socket/);
 
     // Workspace talks to the proxy over TCP, not to the raw socket
