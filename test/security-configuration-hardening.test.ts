@@ -37,4 +37,40 @@ describe("security configuration hardening", () => {
     expect(manifest).toContain("bash /tmp/nemoclaw-install.sh");
     expect(manifest).not.toMatch(/curl\b[^\n|]*\|\s*(?:ba|z|k)?sh\b/i);
   });
+
+  it("interposes a docker socket proxy between workspace and the daemon", () => {
+    const manifest = fs.readFileSync(K8S_MANIFEST, "utf8");
+
+    // Extract docker-proxy section
+    const proxyMatch = manifest.match(
+      /- name: docker-proxy[\s\S]*?(?=\n\s{4}-\s*name: |\n\s*initContainers:|\n\s*volumes:|$)/,
+    );
+    expect(proxyMatch).not.toBeNull();
+    const proxySection = proxyMatch[0];
+
+    // Proxy is hardened
+    expect(proxySection).toMatch(/allowPrivilegeEscalation:\s*false/);
+    expect(proxySection).toMatch(/capabilities:\s*[\r\n]+\s*drop:\s*[\r\n]+\s*-\s*ALL/);
+    expect(proxySection).toMatch(/seccompProfile:\s*[\r\n]+\s*type:\s*RuntimeDefault/);
+    expect(proxySection).toMatch(/runAsNonRoot:\s*true/);
+
+    // Proxy mounts socket read-only
+    expect(proxySection).toMatch(/readOnly:\s*true/);
+
+    // Dangerous Docker API endpoints are denied
+    expect(proxySection).toMatch(/name:\s*EXEC[\s\S]*?value:\s*"0"/);
+    expect(proxySection).toMatch(/name:\s*BUILD[\s\S]*?value:\s*"0"/);
+
+    // Workspace does NOT mount the docker-socket volume
+    const workspaceMatch = manifest.match(
+      /- name: workspace[\s\S]*?(?=\n\s{4}-\s*name: |\n\s*initContainers:|\n\s*volumes:|$)/,
+    );
+    expect(workspaceMatch).not.toBeNull();
+    const workspaceSection = workspaceMatch[0];
+    expect(workspaceSection).not.toMatch(/name:\s*docker-socket/);
+
+    // Workspace talks to the proxy over TCP, not to the raw socket
+    expect(workspaceSection).toMatch(/DOCKER_HOST[\s\S]*?value:\s*tcp:\/\//);
+    expect(workspaceSection).not.toMatch(/DOCKER_HOST[\s\S]*?value:\s*unix:\/\//);
+  });
 });
