@@ -62,6 +62,65 @@ spec:
           memory: "8Gi"
           cpu: "2"
 
+    # Docker socket proxy — filters API access from workspace to daemon.
+    # Only the proxy has the raw socket; workspace talks TCP to the proxy.
+    - name: docker-proxy
+      image: tecnativa/docker-socket-proxy:0.6.0
+      securityContext:
+        allowPrivilegeEscalation: false
+        runAsNonRoot: true
+        runAsUser: 65534   # nobody
+        runAsGroup: 1000   # matches fsGroup — grants access to rootless socket
+        capabilities:
+          drop:
+            - ALL
+        seccompProfile:
+          type: RuntimeDefault
+      ports:
+        - containerPort: 2375
+      env:
+        - name: DOCKER_SOCKET
+          value: /docker-socket/docker.sock
+        # Deny everything by default, then allow only what NemoClaw needs
+        - name: LOG
+          value: "1"              # log all requests for audit
+        - name: POST
+          value: "1"              # allow POST (needed for create/start)
+        - name: CONTAINERS
+          value: "1"              # /containers/* — create, start, stop, inspect
+        - name: IMAGES
+          value: "1"              # /images/* — pull images
+        - name: NETWORKS
+          value: "1"              # /networks/* — container networking
+        - name: VOLUMES
+          value: "1"              # /volumes/* — data volumes
+        - name: INFO
+          value: "1"              # /info — daemon health check
+        - name: VERSION
+          value: "1"              # /version — docker version
+        # Everything else denied by default. If the installer needs BUILD
+        # or EXEC, set the corresponding var to "1" and document why.
+        - name: EXEC
+          value: "0"              # explicitly deny exec into inner containers
+        - name: BUILD
+          value: "0"              # deny build (installer pulls pre-built images)
+      volumeMounts:
+        - name: docker-socket
+          mountPath: /docker-socket
+          readOnly: true
+      livenessProbe:
+        tcpSocket:
+          port: 2375
+        initialDelaySeconds: 5
+        periodSeconds: 10
+      resources:
+        requests:
+          memory: "64Mi"
+          cpu: "100m"
+        limits:
+          memory: "128Mi"
+          cpu: "250m"
+
     # Workspace - runs official NemoClaw installer
     - name: workspace
       image: node:22
@@ -92,11 +151,11 @@ spec:
 
           # Wait for Docker
           echo "[3/4] Waiting for Docker daemon..."
-          for i in $(seq 1 30); do
+          for i in $(seq 1 45); do
             if docker info >/dev/null 2>&1; then break; fi
             sleep 2
           done
-          docker info >/dev/null 2>&1 || { echo "Docker not ready"; exit 1; }
+          docker info >/dev/null 2>&1 || { echo "Docker not ready (daemon or proxy may have failed to start)"; exit 1; }
           echo "Docker ready"
 
           # Default to a dummy compatible API key for unauthenticated endpoints
@@ -119,7 +178,7 @@ spec:
           exec sleep infinity
       env:
         - name: DOCKER_HOST
-          value: unix:///run/user/1000/docker.sock
+          value: tcp://localhost:2375
         # Dynamo endpoint (raw host:port for socat) - UPDATE THIS FOR YOUR CLUSTER
         - name: DYNAMO_HOST
           value: "vllm-disagg-frontend.dynamo.svc.cluster.local:8000"
@@ -144,9 +203,6 @@ spec:
           value: "suggested"
         - name: NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE
           value: "1"
-      volumeMounts:
-        - name: docker-socket
-          mountPath: /run/user/1000
       resources:
         requests:
           memory: "4Gi"

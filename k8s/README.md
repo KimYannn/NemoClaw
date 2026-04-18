@@ -1,9 +1,12 @@
 # NemoClaw on Kubernetes
 
-> **⚠️ Experimental**: This deployment method is intended for **trying out NemoClaw on Kubernetes**, not for production use. It requires a **privileged pod** running **Docker-in-Docker (DinD)** to create isolated sandbox environments. Operational requirements (storage, runtime, security policies) vary by cluster configuration.
+> **⚠️ Experimental**: This deployment method is intended for **trying out NemoClaw on Kubernetes**, not for production use. It uses rootless Docker-in-Docker (DinD) to create isolated sandbox environments. Operational requirements (storage, runtime, security policies) vary by cluster configuration.
 
 The sample manifest now uses a few safer defaults out of the box:
 
+- uses rootless DinD (`docker:24-dind-rootless`) — no privileged containers
+- interposes a Docker socket proxy between workspace and the daemon, blocking exec, build, and other dangerous API endpoints
+- workspace has no direct access to the Docker socket
 - disables Kubernetes service account token automounting
 - disables service-link environment injection
 - runs the workspace container with `allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]`, and `RuntimeDefault` seccomp
@@ -20,7 +23,7 @@ Run [NemoClaw](https://github.com/NVIDIA/NemoClaw) on Kubernetes with GPU infere
 
 - Kubernetes cluster with `kubectl` access
 - An OpenAI-compatible inference endpoint (Dynamo vLLM, vLLM, etc.)
-- Permissions to create **privileged pods** (required for Docker-in-Docker)
+- Kernel 5.11+ on nodes (required for rootless DinD with overlay2)
 - Sufficient node resources (~8GB memory, 2 CPUs for DinD container)
 
 ### 1. Deploy NemoClaw
@@ -155,34 +158,37 @@ sandbox@my-assistant:~$ openclaw agent --agent main -m "What is 7 times 8?"
 ## Architecture
 
 ```text
-┌─────────────────────────────────────────────────────────────────┐
-│                     Kubernetes Cluster                          │
-│                                                                 │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │                    NemoClaw Pod                           │  │
-│  │                                                           │  │
-│  │  ┌─────────────────┐    ┌─────────────────────────────┐   │  │
-│  │  │ Docker-in-Docker│    │    Workspace Container      │   │  │
-│  │  │                 │    │                             │   │  │
-│  │  │  ┌───────────┐  │    │  nemoclaw CLI               │   │  │
-│  │  │  │    k3s    │  │◄───│  openshell CLI              │   │  │
-│  │  │  │  cluster  │  │    │                             │   │  │
-│  │  │  │           │  │    │  socat proxy ───────────────│───│──┼──► Dynamo/vLLM
-│  │  │  │ ┌───────┐ │  │    │  localhost:8000             │   │  │
-│  │  │  │ │Sandbox│ │  │    │                             │   │  │
-│  │  │  │ └───────┘ │  │    │  host.openshell.internal    │   │  │
-│  │  │  └───────────┘  │    │  routes to socat            │   │  │
-│  │  └─────────────────┘    └─────────────────────────────┘   │  │
-│  └───────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                       Kubernetes Cluster                             │
+│                                                                      │
+│  ┌────────────────────────────────────────────────────────────────┐  │
+│  │                       NemoClaw Pod                             │  │
+│  │                                                                │  │
+│  │  ┌──────────────────┐  ┌──────────┐  ┌─────────────────────┐  │  │
+│  │  │ Rootless DinD    │  │  Docker   │  │  Workspace          │  │  │
+│  │  │                  │  │  Socket   │  │                     │  │  │
+│  │  │  ┌────────────┐  │  │  Proxy    │  │  nemoclaw CLI       │  │  │
+│  │  │  │    k3s     │  │◄─│          │◄─│  openshell CLI      │  │  │
+│  │  │  │   cluster  │  │  │ TCP 2375 │  │                     │  │  │
+│  │  │  │            │  │  │          │  │  socat ─────────────│──┼──► Dynamo/vLLM
+│  │  │  │  ┌───────┐ │  │  │ Filters: │  │  localhost:8000     │  │  │
+│  │  │  │  │Sandbox│ │  │  │  EXEC=0  │  │                     │  │  │
+│  │  │  │  └───────┘ │  │  │  BUILD=0 │  │  host.openshell     │  │  │
+│  │  │  └────────────┘  │  │          │  │  .internal → socat  │  │  │
+│  │  └──────────────────┘  └──────────┘  └─────────────────────┘  │  │
+│  │         ▲ unix socket       ▲ tcp://localhost:2375             │  │
+│  └────────────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 **How it works:**
 
-1. NemoClaw runs in a privileged pod with Docker-in-Docker
-2. OpenShell creates a nested k3s cluster for sandbox isolation
-3. A socat proxy bridges K8s DNS to the nested environment
-4. Inside the sandbox, `host.openshell.internal:8000` routes to the inference endpoint
+1. Rootless DinD runs without privileges — host escape via `nsenter` is blocked
+2. A Docker socket proxy filters API access: workspace cannot exec into inner containers or run builds
+3. Workspace talks to the proxy over TCP; it has no direct socket access
+4. OpenShell creates a nested k3s cluster for sandbox isolation
+5. A socat proxy bridges K8s DNS to the nested environment
+6. Inside the sandbox, `host.openshell.internal:8000` routes to the inference endpoint
 
 ---
 
@@ -196,8 +202,8 @@ kubectl describe pod nemoclaw -n nemoclaw
 
 Common issues:
 
-- Missing privileged security context
 - Insufficient memory (needs ~8GB for DinD)
+- Kernel too old for rootless DinD (need 5.11+ for overlay2)
 
 ### Docker daemon not starting
 
@@ -205,7 +211,17 @@ Common issues:
 kubectl logs nemoclaw -n nemoclaw -c dind
 ```
 
-Usually resolves after 30-60 seconds.
+Usually resolves after 30-60 seconds. Rootless DinD may take slightly longer than privileged DinD due to user namespace setup.
+
+### Docker socket proxy issues
+
+```bash
+kubectl logs nemoclaw -n nemoclaw -c docker-proxy
+```
+
+If workspace reports "Docker not ready" but dind logs look healthy, the proxy may be failing. Check for permission errors (socket access) or port conflicts.
+
+If the NemoClaw installer fails with HTTP 403 errors from Docker, the proxy is blocking an API endpoint the installer needs. Check the proxy logs to see which endpoint was denied, then enable it by setting the corresponding env var to `"1"` in the docker-proxy container.
 
 ### Inference not working
 
