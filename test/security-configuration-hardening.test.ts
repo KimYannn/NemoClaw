@@ -12,7 +12,7 @@ describe("security configuration hardening", () => {
   it("hardens the Kubernetes sample manifest with safer defaults", () => {
     const manifest = fs.readFileSync(K8S_MANIFEST, "utf8");
     const workspaceMatch = manifest.match(
-      /- name: workspace[\s\S]*?(?=\n\s*-\s*name: |\n\s*initContainers:|\n\s*volumes:|$)/,
+      /- name: workspace[\s\S]*?(?=\n\s{4}-\s*name: |\n\s*initContainers:|\n\s*volumes:|$)/,
     );
     expect(workspaceMatch).not.toBeNull();
     const workspaceSection = workspaceMatch![0];
