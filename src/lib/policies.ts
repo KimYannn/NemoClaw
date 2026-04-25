@@ -316,8 +316,11 @@ function removePresetFromPolicy(
 
 /**
  * Remove a previously-applied preset from the running sandbox policy and
- * delete its name from the registry entry. Returns `false` if the preset is
- * unknown or has no `network_policies` section.
+ * delete its name from the registry entry. Resolves the preset's content
+ * from the built-in presets directory first, then from the registry's
+ * `customPolicies` list for presets applied via `--from-file`/`--from-dir`.
+ * Returns `false` if the preset is unknown or has no `network_policies`
+ * section.
  */
 function removePreset(sandboxName: string, presetName: string): boolean {
   // Guard against truncated sandbox names — WSL can truncate hyphenated
@@ -330,7 +333,20 @@ function removePreset(sandboxName: string, presetName: string): boolean {
     );
   }
 
-  const presetContent = loadPreset(presetName);
+  // Resolve preset content: built-in first, then custom presets persisted
+  // in the registry. `isCustom` controls which registry bucket to prune on
+  // success.
+  let presetContent: string | null = loadPreset(presetName);
+  let isCustom = false;
+  if (!presetContent) {
+    const custom = registry
+      .getCustomPolicies(sandboxName)
+      .find((p: { name: string }) => p.name === presetName);
+    if (custom) {
+      presetContent = custom.content;
+      isCustom = true;
+    }
+  }
   if (!presetContent) {
     console.error(`  Cannot load preset: ${presetName}`);
     return false;
@@ -390,8 +406,12 @@ function removePreset(sandboxName: string, presetName: string): boolean {
 
   const sandbox = registry.getSandbox(sandboxName);
   if (sandbox) {
-    const pols = (sandbox.policies || []).filter((p: string) => p !== presetName);
-    registry.updateSandbox(sandboxName, { policies: pols });
+    if (isCustom) {
+      registry.removeCustomPolicyByName(sandboxName, presetName);
+    } else {
+      const pols = (sandbox.policies || []).filter((p: string) => p !== presetName);
+      registry.updateSandbox(sandboxName, { policies: pols });
+    }
   }
 
   return true;
@@ -456,12 +476,16 @@ function selectForRemoval(
  * and records the preset name in the registry. Returns `false` if the content
  * has no `network_policies` section. Used by both `applyPreset` (built-in
  * presets) and the `--from-file` / `--from-dir` paths (custom preset files).
+ *
+ * When `options.custom` is set, the preset content is also persisted under
+ * `customPolicies` in the registry so `removePreset` can later undo a
+ * custom preset purely by name.
  */
 function applyPresetContent(
   sandboxName: string,
   presetName: string,
   presetContent: string,
-  _options: Record<string, unknown> = {},
+  options: { custom?: { sourcePath?: string } } = {},
 ): boolean {
   // Guard against truncated sandbox names — WSL can truncate hyphenated
   // names during argument parsing, e.g. "my-assistant" → "m"
@@ -518,11 +542,21 @@ function applyPresetContent(
 
   const sandbox = registry.getSandbox(sandboxName);
   if (sandbox) {
-    const pols = sandbox.policies || [];
-    if (!pols.includes(presetName)) {
-      pols.push(presetName);
+    if (options.custom) {
+      // Custom preset: persist full content so it can be removed later
+      // without requiring the user to still have the file on disk.
+      registry.addCustomPolicy(sandboxName, {
+        name: presetName,
+        content: presetContent,
+        sourcePath: options.custom.sourcePath,
+      });
+    } else {
+      const pols = sandbox.policies || [];
+      if (!pols.includes(presetName)) {
+        pols.push(presetName);
+      }
+      registry.updateSandbox(sandboxName, { policies: pols });
     }
-    registry.updateSandbox(sandboxName, { policies: pols });
   }
 
   return true;
@@ -615,11 +649,30 @@ function loadPresetFromFile(filePath: string): { presetName: string; content: st
 
 /**
  * Return the list of preset names currently recorded as applied to the
- * sandbox, or an empty array if the sandbox is not tracked in the registry.
+ * sandbox (both built-in names and custom-preset names), or an empty array
+ * if the sandbox is not tracked in the registry.
  */
 function getAppliedPresets(sandboxName: string): string[] {
   const sandbox = registry.getSandbox(sandboxName);
-  return sandbox ? sandbox.policies || [] : [];
+  if (!sandbox) return [];
+  const builtin = sandbox.policies || [];
+  const custom = (sandbox.customPolicies || []).map((p: { name: string }) => p.name);
+  return [...builtin, ...custom];
+}
+
+/**
+ * Return the custom preset entries recorded on the sandbox as
+ * `PresetInfo`-shaped objects, so they can be mixed with built-in presets
+ * in listing / selection UIs. `file` is populated from `sourcePath` when
+ * available for a user hint; `description` is empty.
+ */
+function listCustomPresets(sandboxName: string): PresetInfo[] {
+  const entries = registry.getCustomPolicies(sandboxName);
+  return entries.map((e: { name: string; sourcePath?: string }) => ({
+    file: e.sourcePath || `${e.name}.yaml`,
+    name: e.name,
+    description: "custom preset",
+  }));
 }
 
 /**
@@ -819,6 +872,7 @@ export {
   applyPermissivePolicy,
   getAppliedPresets,
   getGatewayPresets,
+  listCustomPresets,
   selectFromList,
   selectForRemoval,
 };

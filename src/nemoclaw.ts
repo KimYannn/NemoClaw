@@ -1968,7 +1968,9 @@ async function applyExternalPreset(
   }
 
   try {
-    const result = policies.applyPresetContent(sandboxName, loaded.presetName, loaded.content);
+    const result = policies.applyPresetContent(sandboxName, loaded.presetName, loaded.content, {
+      custom: { sourcePath: path.resolve(filePath) },
+    });
     return result !== false;
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -1978,7 +1980,9 @@ async function applyExternalPreset(
 }
 
 function sandboxPolicyList(sandboxName: string) {
-  const allPresets = policies.listPresets();
+  const builtin = policies.listPresets();
+  const custom = policies.listCustomPresets(sandboxName);
+  const allPresets = [...builtin, ...custom];
   const registryPresets = policies.getAppliedPresets(sandboxName);
 
   // getGatewayPresets returns null when gateway is unreachable, or an
@@ -2338,9 +2342,15 @@ async function sandboxPolicyRemove(sandboxName: string, args: string[] = []): Pr
   const dryRun = args.includes("--dry-run");
   const skipConfirm =
     args.includes("--yes") ||
+    args.includes("-y") ||
     args.includes("--force") ||
     process.env.NEMOCLAW_NON_INTERACTIVE === "1";
-  const allPresets = policies.listPresets();
+
+  // Remove-able presets = built-in presets + custom presets applied via
+  // --from-file / --from-dir (tracked in registry.customPolicies).
+  const builtinPresets = policies.listPresets();
+  const customPresets = policies.listCustomPresets(sandboxName);
+  const allPresets = [...builtinPresets, ...customPresets];
   const applied = policies.getAppliedPresets(sandboxName);
 
   const presetArg = args.find((arg) => !arg.startsWith("-"));
@@ -2351,7 +2361,7 @@ async function sandboxPolicyRemove(sandboxName: string, args: string[] = []): Pr
     if (!preset) {
       console.error(`  Unknown preset '${presetArg}'.`);
       console.error(
-        `  Valid presets: ${allPresets.map((item: { name: string }) => item.name).join(", ")}`,
+        `  Valid presets: ${allPresets.map((item: { name: string }) => item.name).join(", ") || "(none)"}`,
       );
       process.exit(1);
     }
@@ -2370,7 +2380,19 @@ async function sandboxPolicyRemove(sandboxName: string, args: string[] = []): Pr
   }
   if (!answer) return;
 
-  const presetContent = policies.loadPreset(answer);
+  // Resolve preset content: built-in first, then custom (persisted in
+  // registry). Needed only for the endpoint preview below — removePreset()
+  // itself re-resolves on the library side.
+  let presetContent: string | null = policies.loadPreset(answer);
+  if (!presetContent) {
+    const entry = customPresets.find((p: { name: string }) => p.name === answer);
+    if (entry) {
+      const persisted = registry
+        .getCustomPolicies(sandboxName)
+        .find((p: { name: string }) => p.name === answer);
+      presetContent = persisted ? persisted.content : null;
+    }
+  }
   if (!presetContent) return;
 
   const endpoints = policies.getPresetEndpoints(presetContent);
