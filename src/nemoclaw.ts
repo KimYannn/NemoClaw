@@ -1855,9 +1855,9 @@ async function sandboxPolicyAdd(sandboxName: string, args: string[] = []): Promi
       process.exit(1);
     }
     const files = fs
-      .readdirSync(absDir)
-      .filter((f: string) => /\.ya?ml$/i.test(f))
-      .map((f: string) => path.join(absDir, f))
+      .readdirSync(absDir, { withFileTypes: true })
+      .filter((ent: { name: string; isFile(): boolean }) => ent.isFile() && /\.ya?ml$/i.test(ent.name))
+      .map((ent: { name: string }) => path.join(absDir, ent.name))
       .sort();
     if (files.length === 0) {
       console.error(`  No .yaml/.yml preset files in ${dirPath}`);
@@ -1937,7 +1937,14 @@ async function applyExternalPreset(
   filePath: string,
   { dryRun, yes }: { dryRun: boolean; yes: boolean },
 ): Promise<boolean> {
-  const loaded = policies.loadPresetFromFile(filePath);
+  let loaded;
+  try {
+    loaded = policies.loadPresetFromFile(filePath);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`  Failed to load preset ${filePath}: ${message}`);
+    return false;
+  }
   if (!loaded) return false;
 
   const endpoints = policies.getPresetEndpoints(loaded.content);
@@ -1960,8 +1967,14 @@ async function applyExternalPreset(
     if (confirm.trim().toLowerCase().startsWith("n")) return true; // user-cancel counts as success (no abort)
   }
 
-  const result = policies.applyPresetContent(sandboxName, loaded.presetName, loaded.content);
-  return result !== false;
+  try {
+    const result = policies.applyPresetContent(sandboxName, loaded.presetName, loaded.content);
+    return result !== false;
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`  Failed to apply preset '${loaded.presetName}': ${message}`);
+    return false;
+  }
 }
 
 function sandboxPolicyList(sandboxName: string) {

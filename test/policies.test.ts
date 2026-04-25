@@ -1401,5 +1401,22 @@ setImmediate(() => {
       expect(result.status).not.toBe(0);
       expect(result.stderr).toMatch(/Directory not found/);
     });
+
+    it("--from-dir skips sub-directories whose names end in .yaml/.yml", () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "nemoclaw-from-dir-skipdir-"));
+      // A real preset file and a directory that happens to match the yaml glob.
+      fs.writeFileSync(
+        path.join(dir, "real.yaml"),
+        "preset:\n  name: real\nnetwork_policies: {}\n",
+      );
+      fs.mkdirSync(path.join(dir, "archived.yaml"));
+      const result = runPolicyAddExternal(["--from-dir", dir, "--yes"]);
+      expect(result.status).toBe(0);
+      const calls = JSON.parse(result.stdout.split("__CALLS__")[1].trim()) as PolicyCall[];
+      // Only the real file should have been loaded.
+      const loads = calls.filter((c) => c.type === "load").map((c) => c.path);
+      expect(loads.length).toBe(1);
+      expect(loads[0]).toMatch(/real\.yaml$/);
+    });
   });
 });
