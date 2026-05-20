@@ -6123,8 +6123,7 @@ async function setupNim(
     ["curl", "-sf", ...localProbeCurlArgs, `http://127.0.0.1:${VLLM_PORT}/v1/models`],
     { ignoreError: true },
   );
-  // Pick a vLLM install recipe for this host. Profiles live in inference/vllm.ts;
-  // null means "no supported platform" (vLLM stays behind EXPERIMENTAL).
+  // Pick a vLLM install recipe for this host. Profiles live in inference/vllm.ts.
   const vllmProfile = detectVllmProfile(gpu);
   // If the profile's image is already cached, the install path is really a
   // "start" — docker pull is a no-op and the container can come up in seconds.
@@ -6236,6 +6235,7 @@ async function setupNim(
       vllmRunning,
       vllmProfile,
       experimental: EXPERIMENTAL,
+      platform: gpu?.platform,
       hasVllmImage,
     }),
   );

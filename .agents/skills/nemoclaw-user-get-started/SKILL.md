@@ -219,11 +219,11 @@ $ NEMOCLAW_PROVIDER=routed NVIDIA_API_KEY=<your-key> nemoclaw onboard --non-inte
 The router listens on the host at port `4000`.
 The sandbox still calls `https://inference.local/v1`, so do not point in-sandbox tools at the host router port directly.
 
-**Experimental: Local NIM and Local vLLM:**
+**Local NIM and Local vLLM:**
 
 - **Local NVIDIA NIM** appears when `NEMOCLAW_EXPERIMENTAL=1` is set and the host has a NIM-capable GPU. NemoClaw pulls and manages a NIM container.
 - **Local vLLM (already running)** appears whenever NemoClaw detects a vLLM server on `localhost:8000`. No flag is required for the menu entry. NemoClaw auto-detects the loaded model.
-- **Local vLLM (managed install/start)** requires `NEMOCLAW_EXPERIMENTAL=1` or `NEMOCLAW_PROVIDER=install-vllm`. NemoClaw pulls and starts a vLLM container on supported DGX Spark, DGX Station, and Linux NVIDIA GPU hosts.
+- **Local vLLM (managed install/start)** appears by default on DGX Spark and DGX Station. Generic Linux NVIDIA GPU hosts require `NEMOCLAW_EXPERIMENTAL=1` or `NEMOCLAW_PROVIDER=install-vllm`. NemoClaw pulls and starts a vLLM container on supported hosts.
 
 For setup, refer to Use a Local Inference Server (use the `nemoclaw-user-configure-inference` skill).
 
