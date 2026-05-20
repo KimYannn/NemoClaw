@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import YAML from "yaml";
 
 import { buildComment } from "../tools/pr-review-advisor/comment.mts";
-import { buildSystemPrompt, classifyTestDepth, deriveGateStatus, normalizeReviewResult, readTrustedSecurityReviewSkill, renderSummary } from "../tools/pr-review-advisor/analyze.mts";
+import { buildSystemPrompt, classifyMonolithDelta, classifyTestDepth, deriveGateStatus, normalizeReviewResult, readTrustedSecurityReviewSkill, renderSummary } from "../tools/pr-review-advisor/analyze.mts";
 import { githubGraphql } from "../tools/advisors/github.mts";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
@@ -32,6 +32,7 @@ function metadata(overrides: Partial<ReviewMetadata> = {}): ReviewMetadata {
     },
     workflowSignals: [],
     monolithDeltas: [],
+    driftEvidence: [],
     github: null,
   };
   return {
@@ -140,6 +141,18 @@ describe("PR review advisor", () => {
     expect(classifyTestDepth(["nemoclaw-blueprint/policies/presets/slack.yaml"]).verdict).toBe("e2e_required");
     expect(classifyTestDepth(["src/lib/credentials.ts"]).verdict).toBe("mocks_recommended");
     expect(classifyTestDepth(["docs/get-started/quickstart.mdx"]).verdict).toBe("unit_sufficient");
+  });
+
+  it("classifies current monolith growth using review-skill thresholds", () => {
+    expect(classifyMonolithDelta({ file: "src/lib/onboard.ts", baseLines: 1000, headLines: 1010, delta: 10 })).toMatchObject({
+      severity: "warning",
+    });
+    expect(classifyMonolithDelta({ file: "src/lib/onboard.ts", baseLines: 1000, headLines: 1020, delta: 20 })).toMatchObject({
+      severity: "blocker",
+    });
+    expect(classifyMonolithDelta({ file: "src/lib/small.ts", baseLines: 20, headLines: 60, delta: 40 })).toMatchObject({
+      severity: "none",
+    });
   });
 
   it("treats mergeable-but-not-ready GitHub merge states as warnings", () => {
