@@ -392,6 +392,7 @@ import {
   setupHermesToolGateways,
   stringSetsEqual,
 } from "./onboard/hermes-managed-tools";
+import { mergePolicyMessagingChannels } from "./onboard/messaging-policy-presets";
 import {
   filterEnabledChannelsByAgent,
   getAvailableMessagingChannelsForAgent,
@@ -408,7 +409,7 @@ import { decidePolicyCarryForward } from "./onboard/policy-carryforward";
 import { getSuggestedPolicyPresets } from "./onboard/policy-presets";
 import {
   computeSetupPresetSuggestions as computeSetupPresetSuggestionsImpl,
-  isStaleBuiltinBravePolicyPreset,
+  preparePolicyPresetResumeSelection,
   type SetupPolicySelectionOptions,
   type SetupPresetSuggestionOptions,
   setupPoliciesWithSelection as setupPoliciesWithSelectionImpl,
@@ -9566,7 +9567,14 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
     const recordedMessagingChannels = Array.isArray(latestSession?.messagingChannels)
       ? latestSession.messagingChannels
       : [];
-    const activeMessagingChannels = registry.getSandbox(sandboxName)?.messagingChannels;
+    const activeSandbox = registry.getSandbox(sandboxName);
+    const activeMessagingChannels = activeSandbox?.messagingChannels;
+    const policyMessagingChannels = mergePolicyMessagingChannels(
+      selectedMessagingChannels,
+      recordedMessagingChannels,
+      activeMessagingChannels,
+      activeSandbox?.disabledChannels,
+    );
     verifyCompatibleEndpointSandboxSmoke({
       sandboxName,
       provider,
@@ -9575,44 +9583,27 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
       redact,
       endpointUrl,
       credentialEnv,
-      messagingChannels: Array.isArray(activeMessagingChannels) ? activeMessagingChannels : [],
+      messagingChannels: policyMessagingChannels,
       agent,
     });
-    const policyPresetSupportOptions = { webSearchSupported };
-    const selectablePolicyPresetsForSupport = [
-      ...policies.listSetupPolicyPresets(sandboxName, policyPresetSupportOptions),
-      ...policies.getAppliedPresets(sandboxName).map((name) => ({ name })),
-    ];
-    const customPolicyPresetNames = new Set(
-      policies.listCustomPresets(sandboxName).map((p: { name: string }) => p.name),
-    );
-    let recordedPolicyPresetsForSupport = policies.clampSetupPolicyPresetNames(
-      recordedPolicyPresets || [],
-      selectablePolicyPresetsForSupport,
-      policyPresetSupportOptions,
-      customPolicyPresetNames,
-    );
-    recordedPolicyPresetsForSupport = recordedPolicyPresetsForSupport.filter(
-      (name) =>
-        !isStaleBuiltinBravePolicyPreset(name, {
-          webSearchConfig,
-          customPresetNames: customPolicyPresetNames,
-        }),
-    );
-    if (recordedPolicyPresets) {
-      recordedPolicyPresetsForSupport = mergeRequiredHermesToolGatewayPolicyPresets(
-        recordedPolicyPresetsForSupport,
+    const policyResumeSelection = preparePolicyPresetResumeSelection(
+      { policies },
+      sandboxName,
+      {
+        recordedPolicyPresets,
+        disabledChannels: activeSandbox?.disabledChannels,
+        enabledChannels: policyMessagingChannels,
         hermesToolGateways,
-        selectablePolicyPresetsForSupport.map((p) => p.name),
-      );
-    }
-    const recordedPolicyPresetsHaveUnsupported =
-      Array.isArray(recordedPolicyPresets) &&
-      recordedPolicyPresetsForSupport.length !== recordedPolicyPresets.length;
+        webSearchConfig,
+        webSearchSupported,
+      },
+    );
+    const recordedPolicyPresetsForSupport = policyResumeSelection.policyPresets;
     const resumePolicies =
       resume &&
       sandboxName &&
-      !recordedPolicyPresetsHaveUnsupported &&
+      !policyResumeSelection.recordedPolicyPresetsNeedReconcile &&
+      !policyResumeSelection.disabledMessagingPolicyPresetApplied &&
       arePolicyPresetsApplied(sandboxName, recordedPolicyPresetsForSupport);
     if (resumePolicies) {
       skippedStepMessage("policies", recordedPolicyPresetsForSupport.join(", "));
@@ -9632,15 +9623,13 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
         model,
         policyPresets: recordedPolicyPresetsForSupport,
       });
-      const appliedPolicyPresets = await setupPoliciesWithSelection(sandboxName, {
+      const setupAppliedPolicyPresets = await setupPoliciesWithSelection(sandboxName, {
         selectedPresets:
           Array.isArray(recordedPolicyPresets)
             ? recordedPolicyPresetsForSupport
             : null,
-        enabledChannels:
-          selectedMessagingChannels.length > 0
-            ? selectedMessagingChannels
-            : recordedMessagingChannels,
+        enabledChannels: policyMessagingChannels,
+        disabledChannels: activeSandbox?.disabledChannels,
         webSearchConfig,
         provider,
         webSearchSupported,
@@ -9654,7 +9643,12 @@ async function onboard(opts: OnboardOptions = {}): Promise<void> {
       });
       await recordStepComplete(
         "policies",
-        toSessionUpdates({ sandboxName, provider, model, policyPresets: appliedPolicyPresets }),
+        toSessionUpdates({
+          sandboxName,
+          provider,
+          model,
+          policyPresets: setupAppliedPolicyPresets,
+        }),
       );
     }
 
